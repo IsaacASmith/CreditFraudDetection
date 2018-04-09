@@ -4,6 +4,18 @@ import tensorflow as tf
 import pandas as pa
 
 def main():
+    # Define neural net hyper parameters
+    step_size = 0.01
+    epochs = 100
+    batch_size = 4096
+
+    input_layer_width = 30
+    layer1_width = 40
+    layer2_width = 50
+    layer3_width = 5
+    output_layer_width = 1
+
+    data_count = 284806
 
 
     # --- Format the data into a tf usable format ---
@@ -11,94 +23,117 @@ def main():
 
     # Open the credit card data file
     csv = openCSV("creditcard.csv")
-    csv.set_index("Time", inplace = True)
-    
+
     # Break the list into two lists, one of fraudulent and one of non-fraudulent
     fraudList = csv[csv.Class == 1]
     nonFraudList = csv[csv.Class == 0]
 
     # Build the list of training data
-    trainList = fraudList.sample(frac = .85)
-    trainList = pa.concat([trainList, nonFraudList.sample(frac = .85)], axis = 0)
+    trainListInput = fraudList.sample(frac = .85)
+    trainListInput = pa.concat([trainListInput, nonFraudList.sample(frac = .85)], axis = 0)
+    trainListInput = trainListInput.sample(frac = 1)
+    trainListExpected = trainListInput.Class.as_matrix()
 
-    #Build the list of testing data -- anything not in the training data
-    testList = csv.loc[~csv.index.isin(trainList.index)]
+    # Build the list of testing data -- anything not in the training data
+    testListInput = (csv.loc[~csv.index.isin(trainListInput.index)]).sample(frac = 1)
+    testListExpected = testListInput.Class.as_matrix()
+
+    # Remove the class from the input and convert the lists to matrices
+    trainListInput = trainListInput.drop('Class', axis = 1).as_matrix()
+    testListInput = testListInput.drop('Class', axis = 1).as_matrix()
+
 
     # --- Set up initial layer weights ---
 
 
-    # Define input layer of size 31 (There are 31 values per data point)
-    inputLayer = tf.placeholder(tf.float32, [None, 31])
-
-    # Define output layer of size 1 (There is only one output value)
-    outputLayer = tf.placeholder(tf.float32, [None, 1])
+    # Define input layer 
+    inputLayer = tf.placeholder(tf.float32, [None, input_layer_width])
 
     # Define input -> 1 weights
-    Weights1 = tf.Variable(tf.random_normal([31, 20], stddev = .03), name = 'Weights1')
-    Bias1 = tf.Variable(tf.random_normal([20]), name = 'Bias1')
+    Weights1 = tf.Variable(tf.random_normal([input_layer_width, layer1_width], stddev = .03), name = 'Weights1')
+    Bias1 = tf.Variable(tf.random_normal([layer1_width]), name = 'Bias1')
 
     # Define layer 1 -> layer 2 weights
-    Weights2 = tf.Variable(tf.random_normal([20, 20], stddev = .03), name = 'Weights2')
-    Bias2 = tf.Variable(tf.random_normal([20]), name = 'Bias2')
+    Weights2 = tf.Variable(tf.random_normal([layer1_width, layer2_width], stddev = .03), name = 'Weights2')
+    Bias2 = tf.Variable(tf.random_normal([layer2_width]), name = 'Bias2')
 
     #Define layer 2 -> layer 3 weights
-    Weights3 = tf.Variable(tf.random_normal([20, 20], stddev = .03), name = 'Weights3')
-    Bias3 = tf.Variable(tf.random_normal([20]), name = 'Bias3')
+    Weights3 = tf.Variable(tf.random_normal([layer2_width, layer3_width], stddev = .03), name = 'Weights3')
+    Bias3 = tf.Variable(tf.random_normal([layer3_width]), name = 'Bias3')
 
     #Define layer 3 -> output weights
-    Weights4 = tf.Variable(tf.random_normal([20, 1], stddev = .03), name = 'Weights4')
-    Bias4 = tf.Variable(tf.random_normal([1]), name = 'Bias4')
+    Weights4 = tf.Variable(tf.random_normal([layer3_width, output_layer_width], stddev = .03), name = 'Weights4')
+    Bias4 = tf.Variable(tf.random_normal([output_layer_width]), name = 'Bias4')
+
+    # Define output layer
+    outputLayer = tf.placeholder(tf.float32, [None])
 
 
     # --- Set up connections between layers ---
 
 
-    # Matrix Multiply the input and weights plus the bias for layer 1
-    hidden_out1 = tf.add(tf.matmul(inputLayer, Weights1), Bias1)
-    # RELU the result of the matrix multiply
-    hidden_out1 = tf.nn.relu(hidden_out1)
-
-    hidden_out2 = tf.add(tf.matmul(hidden_out1, Weights2), Bias2)
-    hidden_out2 = tf.nn.relu(hidden_out2)
-
-    hidden_out3 = tf.add(tf.matmul(hidden_out2, Weights3), Bias3)
-    hidden_out3 = tf.nn.relu(hidden_out3)
-
-    # Output layer
-    output = tf.nn.softmax(tf.add(hidden_out3, Weights4), Bias4)
-    # Normalize output to be between 0 and 1 (ish)
-    normalized = tf.clip_by_value(output, 1e-10, 0.9999999)
+    # Matrix Multiply the input and weights plus the bias for the layer, then RELU it
+    hidden_out1 = tf.nn.sigmoid(tf.add(tf.matmul(inputLayer, Weights1), Bias1))
+    hidden_out2 = tf.nn.sigmoid(tf.add(tf.matmul(hidden_out1, Weights2), Bias2))
+    hidden_out3 = tf.nn.sigmoid(tf.add(tf.matmul(hidden_out2, Weights3), Bias3))
+    output = tf.add(tf.matmul(hidden_out3, Weights4), Bias4)
 
     # Define the cost function
-    tmp = tf.placeholder(tf.float32, [None, 2])
-    cost = -tf.reduce_sum(normalized * tf.log(tmp))
+    cost = -tf.reduce_mean(output - outputLayer)
 
     # Define the backpropagation step
-    backprop = tf.train.GradientDescentOptimizer(learning_rate = step_size).minimize(normalized)
-
-    initialize = tf.global_variables_initializer()
+    backprop = tf.train.GradientDescentOptimizer(learning_rate = step_size).minimize(cost)
 
 
     # --- Run the learning ---
 
+    forwardOutput = tf.reduce_sum(output)
 
-    # Define neural net hyper parameters
-    step_size = 0.1
-    epochs = 1
-    batch_size = 10000
 
-    #with tf.Session() as sess:
-    #    sess.run(initialize)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
-    #    for epoch in range(epochs):
-    #        avg_cost = 0
-            
+        batchesPerEpoch = (int(len(trainListInput) / batch_size))
+
+        for epoch in range(epochs):
+            avg_cost = 0
+            for batchIndex in range(batchesPerEpoch):
+
+                inputBatch = trainListInput[batchIndex * batch_size : (1 + batchIndex) * batch_size]
+                expectedBatch = trainListExpected[batchIndex * batch_size : (1 + batchIndex) * batch_size]
+                
+                _, c = sess.run([backprop, cost], feed_dict={inputLayer: inputBatch, outputLayer: expectedBatch})
+
+                asdf, newCost = sess.run([forwardOutput, cost], feed_dict={inputLayer: inputBatch, outputLayer: expectedBatch})
+
+                avg_cost += c / batchesPerEpoch
+
+                print("Batch Output: ", asdf, "Batch Cost: ", c)
+
+            print("Epoch: ", (epoch + 1), "Cost: ", avg_cost)
 
 
     #http://adventuresinmachinelearning.com/python-tensorflow-tutorial/
+    #https://www.kaggle.com/mlg-ulb/creditcardfraud
+
 
 def openCSV(filename):
     return pa.read_csv(filename)
+
+
+def normalize(tensor):
+    return tf.div(
+       tf.subtract(
+          tensor, 
+          tf.reduce_min(tensor)
+       ), 
+       tf.subtract(
+          tf.reduce_max(tensor), 
+          tf.reduce_min(tensor)
+       )
+    )
+
+
 
 
 # Run it
