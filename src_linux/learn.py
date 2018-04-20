@@ -11,10 +11,10 @@ import pandas as pa
 
 # --- Define neural net hyper parameters ---
 
-step_size = 0.0001
+step_size = 0.00001
 epochs = 5000
-batch_size = 4096
-dropout = .9
+batch_size = 100
+dropout = .95
 
 input_layer_width = 30
 layer1_width = 40
@@ -40,7 +40,7 @@ def main():
     nonFraudList = csv[csv.NonFraud == 1]
 
     # Build the list of training data in a random order
-    trainListInput = nonFraudList.sample(frac = .75)
+    trainListInput = nonFraudList.sample(frac = .0017)
     trainListInput = pa.concat([trainListInput, fraudList.sample(frac = .75)], axis = 0)
     trainListInput = trainListInput.sample(frac = 1)
     trainListExpected = pa.concat([trainListInput.Fraud, trainListInput.NonFraud], axis = 1)
@@ -57,7 +57,9 @@ def main():
     augmentation = len(trainListInput) / (len(fraudList) * .75)
     trainListExpected.Fraud *= augmentation
     testListExpected.Fraud *= augmentation
-    
+
+    print(augmentation)
+
     # Convert expected values to matrices
     trainListExpected = trainListExpected.as_matrix()
     testListExpected = testListExpected.as_matrix()
@@ -99,10 +101,10 @@ def main():
     hidden_out1 = tf.nn.relu(tf.add(tf.matmul(x, Weights1), Bias1))
     hidden_out2 = tf.nn.relu(tf.add(tf.matmul(hidden_out1, Weights2), Bias2))
     hidden_out3 = tf.nn.dropout(tf.nn.relu(tf.add(tf.matmul(hidden_out2, Weights3), Bias3)), dropout_keep)
-    output = tf.add(tf.matmul(hidden_out3, Weights4), Bias4)
+    output = tf.nn.relu(tf.add(tf.matmul(hidden_out3, Weights4), Bias4))
 
     # Define the cost function
-    y_clipped = tf.clip_by_value(output, 1e-10, 0.9999999)
+    y_clipped = tf.clip_by_value(output, 1e-10, 999999999)
     cross_entropy = -tf.reduce_mean(tf.reduce_sum(y * tf.log(y_clipped) + (1 - y) * tf.log(1 - y_clipped), axis=1))
 
     # Define the backpropagation step
