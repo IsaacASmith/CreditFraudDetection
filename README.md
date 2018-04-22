@@ -16,9 +16,15 @@ To run the learning:
 
 On Both Platforms: Ensure that python and the pandas/tensorflow packages are installed.
 
-On Linux: Change the learn.py file execution permission to true and run with ./learn.py
+On Linux: 
+ * Change directory to src_linux
+ * Change the learn.py file execution permission to true 
+ * Run with ./learn.py
 
-On Windows: Open the Visual Studio solution file in VS 2017 and run from the IDE.
+On Windows: 
+ * Change directory to src_win
+ * Open the Visual Studio solution file in VS 2017
+ * Rrun from the IDE.
 
 ______________________________________________________________________________________________
 
