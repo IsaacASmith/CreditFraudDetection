@@ -7,18 +7,21 @@
 
 import tensorflow as tf
 import pandas as pa
+import sys
+import os
 
+EPOCH_LOG_FILE = "epoch_log.csv"
 
 # --- Define neural net hyper parameters ---
 
-step_size = 0.0001
+step_size = 0.000001
 epochs = 5000
 batch_size = 4096
 dropout = .9
 
 input_layer_width = 30
-layer1_width = 40
-layer2_width = 50
+layer1_width = 60
+layer2_width = 90
 layer3_width = 60
 output_layer_width = 2
 
@@ -26,7 +29,7 @@ output_layer_width = 2
 def main():
 
 
-    # --- Format the data into a tf usable format ---
+    # --- Data Pre-Processing ---
 
 
     # Open the credit card data file
@@ -39,25 +42,48 @@ def main():
     fraudList = csv[csv.Fraud == 1]
     nonFraudList = csv[csv.NonFraud == 1]
 
-    # Build the list of training data in a random order
+    # Create the fraud lists
+    fraudListTrainInput = fraudList.sample(frac = .75)
+    fraudListTestInput = fraudList.loc[~fraudList.index.isin(fraudListTrainInput.index)]
+
+    # Create the training fraud lists for later
+    trainInputFraud = fraudListTrainInput[fraudListTrainInput.Fraud == 1]
+    trainExpectedFraud = pa.concat([trainInputFraud.Fraud, trainInputFraud.NonFraud], axis = 1)
+    trainInputFraud = trainInputFraud.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
+
+    # Augment the fraud lists to fix the dataset skewing
+    fraudListTrainInput = fraudListTrainInput.sample(replace = True, frac = 600)
+    fraudListTestInput = fraudListTestInput.sample(replace = True, frac = 600)
+    fraudListTestExpected = pa.concat([fraudListTestInput.Fraud, fraudListTestInput.NonFraud], axis = 1)
+
+    # Build the lists of training data in a random order
     trainListInput = nonFraudList.sample(frac = .75)
-    trainListInput = pa.concat([trainListInput, fraudList.sample(frac = .75)], axis = 0)
+    trainListInput = pa.concat([trainListInput, fraudListTrainInput.sample(frac = 1)], axis = 0)
+
     trainListInput = trainListInput.sample(frac = 1)
     trainListExpected = pa.concat([trainListInput.Fraud, trainListInput.NonFraud], axis = 1)
 
-    # Build the list of testing data -- anything not in the training data
+    # Build list of non fraud training data for later
+    trainInputNonFraud = trainListInput[trainListInput.NonFraud == 1]
+    trainExpectedNonFraud = pa.concat([trainInputNonFraud.Fraud, trainInputNonFraud.NonFraud], axis = 1)
+    trainInputNonFraud = trainInputNonFraud.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
+
+    # Build the lists of testing data -- anything not in the training data
+    csv = csv[csv.NonFraud == 1]
     testListInput = (csv.loc[~csv.index.isin(trainListInput.index)]).sample(frac = 1)
+    testListInput = pa.concat([testListInput, fraudListTestInput.sample(frac = 1)], axis = 0)
+
+    nonFraudTestInput = testListInput[testListInput.NonFraud == 1]
+    nonFraudTestExpected = pa.concat([nonFraudTestInput.Fraud, nonFraudTestInput.NonFraud], axis = 1)
+    nonFraudTestInput = nonFraudTestInput.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
+
+    fraudListTestInput = fraudListTestInput.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
     testListExpected = pa.concat([testListInput.Fraud, testListInput.NonFraud], axis = 1)
 
     # Remove the class from the input and convert the lists to matrices
     trainListInput = trainListInput.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
     testListInput = testListInput.drop('Fraud', axis = 1).drop('NonFraud', axis = 1).as_matrix()
 
-    # A value to increase the weight of the fraudulent transactions, since it's pretty skewed
-    augmentation = len(trainListInput) / (len(fraudList) * .75)
-    trainListExpected.Fraud *= augmentation
-    testListExpected.Fraud *= augmentation
-    
     # Convert expected values to matrices
     trainListExpected = trainListExpected.as_matrix()
     testListExpected = testListExpected.as_matrix()
@@ -102,52 +128,50 @@ def main():
     output = tf.add(tf.matmul(hidden_out3, Weights4), Bias4)
 
     # Define the cost function
-    y_clipped = tf.clip_by_value(output, 1e-10, 0.9999999)
-    cross_entropy = -tf.reduce_mean(tf.reduce_sum(y * tf.log(y_clipped) + (1 - y) * tf.log(1 - y_clipped), axis=1))
+    #y_clipped = tf.clip_by_value(output, 1e-10, .999999)
+    #cross_entropy = -tf.reduce_mean(tf.reduce_sum(y * tf.log(y_clipped) + (1 - y) * tf.log(1 - y_clipped), axis=1))
+
+    MSE = tf.reduce_mean(tf.squared_difference(y, output))
 
     # Define the backpropagation step
-    optimizer = tf.train.AdamOptimizer(learning_rate = step_size).minimize(cross_entropy)
+    optimizer = tf.train.AdamOptimizer(learning_rate = step_size).minimize(MSE)
 
     # Define an accuracy assessment
-    correct_prediction = tf.equal(tf.argmax(y,1), tf.argmax(output,1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(y,1), tf.argmax(output,1)), tf.float32))
 
 
     # --- Run the learning ---
 
+    initEpochLog()
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
         batchesPerEpoch = (int(len(trainListInput) / batch_size))
-        minCost = 1e10
-        epochsFailed = 0
-        epochsFailedMax = 100
 
         for epoch in range(epochs):
-            avg_cost = 0
             for batchIndex in range(batchesPerEpoch):
 
+                # Form mini batches
                 inputBatch = trainListInput[batchIndex * batch_size : (1 + batchIndex) * batch_size]
                 expectedBatch = trainListExpected[batchIndex * batch_size : (1 + batchIndex) * batch_size]
 
-                _, c = sess.run([optimizer, cross_entropy], feed_dict={x: inputBatch, y: expectedBatch, dropout_keep: dropout})
+                # Run the defined graph
+                _, c = sess.run([optimizer, MSE], feed_dict={x: inputBatch, y: expectedBatch, dropout_keep: dropout})
 
-                avg_cost += (c / batchesPerEpoch)
+            # Pull out metrics after each epoch
+            fraud_precision_test, fraud_cost_test = sess.run([accuracy, MSE], feed_dict={x: fraudListTestInput, y: fraudListTestExpected, dropout_keep: 1})
+            non_fraud_precision_test, non_fraud_cost_test = sess.run([accuracy, MSE], feed_dict={x: nonFraudTestInput, y: nonFraudTestExpected, dropout_keep: 1})
+            fraud_precision_train, fraud_cost_train = sess.run([accuracy, MSE], feed_dict={x: trainInputFraud, y: trainExpectedFraud, dropout_keep: 1})
+            non_fraud_precision_train, non_fraud_cost_train = sess.run([accuracy, MSE], feed_dict={x: trainInputNonFraud, y: trainExpectedNonFraud, dropout_keep: 1})
+            train_accuracy, train_cost = sess.run([accuracy, MSE], feed_dict={x: trainListInput, y: trainListExpected, dropout_keep: 1})
+            test_accuracy, test_cost= sess.run([accuracy, MSE], feed_dict={x: testListInput, y: testListExpected, dropout_keep: 1})
 
-            test_accuracy, test_cost = sess.run([accuracy, cross_entropy], feed_dict={x: testListInput, y: testListExpected, dropout_keep: 1})
-
-            #Determine if optimization has leveled off
-            #if abs(test_accuracy ) < minCost:
-            #    minCost = test_cost
-            #    epochsFailed = 0
-            #elif epochsFailed > epochsFailedMax:
-            #    break
-            #else:
-            #    epochsFailed = epochsFailed + 1
+            # Log epoch results to csv
+            logEpoch(test_accuracy, test_cost, fraud_precision_test, non_fraud_precision_test, train_accuracy, train_cost, fraud_precision_train, non_fraud_precision_train)
 
             print("-----------------------------------------------------------------------")
-            print("Number: ", (epoch + 1), " Test Accuracy: ", test_accuracy, " Test Cost: ", test_cost)
+            print("Number: ", (epoch + 1), " Test Accuracy: ", test_accuracy, " Train Cost: ", train_cost)
             
         print("")
         print("Finished Optimizing")
@@ -157,18 +181,16 @@ def main():
 def openCSV(filename):
     return pa.read_csv(filename)
 
+def initEpochLog():
+    with open(EPOCH_LOG_FILE, 'w') as logfile:
+        logfile.write("test_accuracy, test_cost, test_fraud_precision, test_non_fraud_precision, train_accuracy, train_cost, train_fraud_precision, train_non_fraud_precision")
 
-def normalize(tensor):
-    return tf.div(
-       tf.subtract(
-          tensor, 
-          tf.reduce_min(tensor)
-       ), 
-       tf.subtract(
-          tf.reduce_max(tensor), 
-          tf.reduce_min(tensor)
-       )
-    )
+
+def logEpoch(test_accuracy, test_cost, test_fraud_precision, test_non_fraud_precision, train_accuracy, train_cost, train_fraud_precision, train_non_fraud_precision):
+    x = 5
+    with open(EPOCH_LOG_FILE, 'a') as logfile:
+        logfile.write('\n' + str(test_accuracy) + ',' + str(test_cost) + ',' + str(test_fraud_precision) + ',' + str(test_non_fraud_precision) + ',' + str(train_accuracy) + ',' + str(train_cost) + ',' + str(train_fraud_precision) + ',' + str(train_non_fraud_precision))
+
 
 # Run it
 main()
