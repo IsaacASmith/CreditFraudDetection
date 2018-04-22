@@ -7,15 +7,18 @@
 
 import tensorflow as tf
 import pandas as pa
+import random as rng
 import sys
 import os
 
 EPOCH_LOG_FILE = "epoch_log.csv"
 
+
 # --- Define neural net hyper parameters ---
 
-step_size = 0.000001
-epochs = 5000
+
+step_size = 0.00001
+epochs = 350
 batch_size = 4096
 dropout = .9
 
@@ -53,7 +56,7 @@ def main():
 
     # Augment the fraud lists to fix the dataset skewing
     fraudListTrainInput = fraudListTrainInput.sample(replace = True, frac = 600)
-    fraudListTestInput = fraudListTestInput.sample(replace = True, frac = 600)
+    fraudListTestInput = fraudListTestInput.sample(frac = 1)
     fraudListTestExpected = pa.concat([fraudListTestInput.Fraud, fraudListTestInput.NonFraud], axis = 1)
 
     # Build the lists of training data in a random order
@@ -124,13 +127,10 @@ def main():
     # Matrix Multiply the input and weights plus the bias for the layer, then RELU it
     hidden_out1 = tf.nn.relu(tf.add(tf.matmul(x, Weights1), Bias1))
     hidden_out2 = tf.nn.relu(tf.add(tf.matmul(hidden_out1, Weights2), Bias2))
-    hidden_out3 = tf.nn.dropout(tf.nn.relu(tf.add(tf.matmul(hidden_out2, Weights3), Bias3)), dropout_keep)
+    hidden_out3 = tf.nn.relu(tf.add(tf.matmul(hidden_out2, Weights3), Bias3))
     output = tf.add(tf.matmul(hidden_out3, Weights4), Bias4)
 
     # Define the cost function
-    #y_clipped = tf.clip_by_value(output, 1e-10, .999999)
-    #cross_entropy = -tf.reduce_mean(tf.reduce_sum(y * tf.log(y_clipped) + (1 - y) * tf.log(1 - y_clipped), axis=1))
-
     MSE = tf.reduce_mean(tf.squared_difference(y, output))
 
     # Define the backpropagation step
@@ -156,6 +156,9 @@ def main():
                 inputBatch = trainListInput[batchIndex * batch_size : (1 + batchIndex) * batch_size]
                 expectedBatch = trainListExpected[batchIndex * batch_size : (1 + batchIndex) * batch_size]
 
+                # Uncomment to run with pseudo-random batch generation
+                #inputBatch, expectedBatch = generateRandomBatch(trainListInput, trainListExpected)
+
                 # Run the defined graph
                 _, c = sess.run([optimizer, MSE], feed_dict={x: inputBatch, y: expectedBatch, dropout_keep: dropout})
 
@@ -171,7 +174,7 @@ def main():
             logEpoch(test_accuracy, test_cost, fraud_precision_test, non_fraud_precision_test, train_accuracy, train_cost, fraud_precision_train, non_fraud_precision_train)
 
             print("-----------------------------------------------------------------------")
-            print("Number: ", (epoch + 1), " Test Accuracy: ", test_accuracy, " Train Cost: ", train_cost)
+            print("[", (epoch + 1), "]", " Test Accuracy: ", test_accuracy, " Train Cost: ", train_cost)
             
         print("")
         print("Finished Optimizing")
@@ -180,6 +183,12 @@ def main():
 
 def openCSV(filename):
     return pa.read_csv(filename)
+
+
+def generateRandomBatch(trainListInput, trainListExpected):
+    batchIndex = rng.randint(0, int(len(trainListInput) - batch_size - 1))
+    return trainListInput[batchIndex : batchIndex + batch_size], trainListExpected[batchIndex : batchIndex + batch_size]
+
 
 def initEpochLog():
     with open(EPOCH_LOG_FILE, 'w') as logfile:
