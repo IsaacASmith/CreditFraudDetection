@@ -1,5 +1,5 @@
-# DeepLearning
-CSC 416 Deep Learning Repo
+# CreditFraudDetection
+Detecting fraudulent credit card transactions using deep learning.
 
 ______________________________________________________________________________________________
 
